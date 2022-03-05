@@ -27,10 +27,6 @@ public:
 
     real data[Dim];
 
-    real operator[](size_t index) const {
-        return data[index];
-    }
-
     Vector() = default;
 
     Vector(real value) {
@@ -42,6 +38,9 @@ public:
     Vector(const std::initializer_list<real>& l) {
         Assign(l);
     }
+
+    real& operator[](size_t idx) { return data[idx]; }
+    real operator[](size_t idx) const { return data[idx]; }
 
     void Assign(const std::initializer_list<real>& l) {
         size_t max = std::min(Dim, l.size());
@@ -77,6 +76,9 @@ public:
     Vector(const std::initializer_list<real>& l) {
         Assign(l);
     }
+
+    real& operator[](size_t idx) { return data[idx]; }
+    real operator[](size_t idx) const { return data[idx]; }
 
     void Assign(const std::initializer_list<real>& l) {
         size_t max = std::min<size_t>(2, l.size());
@@ -114,6 +116,9 @@ public:
     Vector(const std::initializer_list<real>& l) {
         Assign(l);
     }
+
+    real& operator[](size_t idx) { return data[idx]; }
+    real operator[](size_t idx) const { return data[idx]; }
 
     void Assign(const std::initializer_list<real>& l) {
         size_t max = std::min<size_t>(3, l.size());
@@ -154,6 +159,9 @@ public:
     Vector(const std::initializer_list<real>& l) {
         Assign(l);
     }
+
+    real& operator[](size_t idx) { return data[idx]; }
+    real operator[](size_t idx) const { return data[idx]; }
 
     void Assign(const std::initializer_list<real>& l) {
         size_t max = std::min<size_t>(4, l.size());
@@ -282,6 +290,20 @@ real Dot(const Vector<Dim>& v1, const Vector<Dim>& v2) {
     return sum;
 }
 
+template <size_t Dim1, size_t Dim2>
+Vector<Dim1> Vec(const Vector<Dim2>& v) {
+    Vector<Dim1> result;
+    size_t min = std::min(Dim1, Dim2);
+    size_t i = 0;
+    for (i = 0; i < min; i++) {
+        result.data[i] = v.data[i];
+    }
+    for (; i < Dim1; i++) {
+        result.data[i] = 0;
+    }
+    return result;
+}
+
 template <size_t Dim>
 real Len2(const Vector<Dim>& v) {
     real result = 0;
@@ -333,7 +355,8 @@ std::ostream& operator<<(std::ostream& o, const Vector<Dim>& v) {
 using Vec2 = Vector<2>;
 using Vec3 = Vector<3>;
 using Vec4 = Vector<4>;
-using Color = Vec4;
+using Color4 = Vec4;
+using Color3 = Vec3;
 
 template <typename T>
 T Clamp(T value, T min, T max) {
@@ -474,6 +497,14 @@ public:
         return result;
     }
 
+    void T() {
+        for (size_t i = 0; i < Row; i++) {
+            for (size_t j = i+1 ; j < Col; j++) {
+                Set(i, j, Get(j, i));
+            }
+        }
+    }
+
 private:
     real data_[Col * Row];
 };
@@ -512,6 +543,30 @@ Matrix<TCol, Row> operator*(const Matrix<Col, Row>& m1, const Matrix<TCol, TRow>
     return result;
 }
 
+template <size_t Col, size_t Row>
+Matrix<Row, Col> Transpose(const Matrix<Col, Row>& m) {
+    Matrix<Row, Col> result;
+    for (size_t i = 0; i < Row; i++) {
+        for (size_t j = 0; j < Col; j++) {
+            result.Set(i, j, m.Get(j, i));
+        }
+    }
+    return result;
+}
+
+template <size_t Col, size_t Row, size_t Dim>
+Vector<Row> operator*(const Matrix<Col, Row>& m, const Vector<Dim>& v) {
+    Vector<Row> result;
+    for (size_t j = 0; j < Row; j++) {
+        real sum = 0;
+        for (size_t i = 0; i < Col; i++) {
+            sum += v.data[i] * m.Get(i, j);
+        }
+        result.data[j] = sum;
+    }
+    return result;
+}
+
 /***********************************
  * Surface - use this to draw points
 ***********************************/
@@ -539,19 +594,23 @@ public:
 
     inline int Width() const { return surface_->w; }
     inline int Height() const { return surface_->h; }
-    void PutPixel(int x, int y, const SDL_Color& color) {
-        *getPixel(x, y) = SDL_MapRGB(surface_->format,
-                                     color.r, color.g, color.b);
+    void PutPixel(int x, int y, const Color4& color) {
+        *getPixel(x, y) = SDL_MapRGBA(surface_->format,
+                                      color.r * 255,
+                                      color.g * 255,
+                                      color.b * 255,
+                                      color.a * 255);
     }
-    Color GetPixel(int x, int y) {
+
+    Color4 GetPixel(int x, int y) {
         const Uint32* color = getPixel(x, y);
         Uint8 r, g, b, a;
         SDL_GetRGBA(*color, surface_->format,
                     &r, &g, &b, &a);
-        return Color{r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f};
+        return Color4{r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f};
     }
 
-    inline void Clear(const Color& color) {
+    inline void Clear(const Color4& color) {
         SDL_FillRect(surface_, nullptr,
                      SDL_MapRGBA(surface_->format,
                                  color.r * 255,
@@ -561,7 +620,7 @@ public:
     }
 
     void Save(const char* filename) {
-        auto surface = SDL_ConvertSurfaceFormat(surface_, SDL_PIXELFORMAT_RGBA32, 0);
+        auto surface = SDL_ConvertSurfaceFormat(surface_, SDL_PIXELFORMAT_RGB24, 0);
         if (surface) {
             SDL_SaveBMP(surface, filename);
             SDL_FreeSurface(surface);
