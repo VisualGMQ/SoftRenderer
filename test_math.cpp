@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cassert>
 #include "renderer.hpp"
 using namespace std;
 
@@ -12,6 +13,11 @@ int main() {
               << Vec4{1.1, 2.8, 3.3, 5.5, 6.8, 2.9} << std::endl;
     std::cout << "Vec<2>(v1)" << Vec<2>(v1) << std::endl
               << "Vec<3>(v1)" << Vec<3>(v1) << std::endl;
+
+    Vec3 eqv1{1, 2, 3}, eqv2{1, 2, 3}, neqv3{2, 3, 4};
+    assert(eqv1 == eqv2);
+    assert(eqv1 != neqv3);
+    assert(eqv2 != neqv3);
 
     Matrix<2, 2> m1{1, 2,
                     3, 4};

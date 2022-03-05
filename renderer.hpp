@@ -2,8 +2,11 @@
 
 #include <cstddef>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <initializer_list>
+#include <memory>
+#include <unordered_map>
 
 #include "SDL.h"
 
@@ -11,7 +14,7 @@
  * Log
 ****************************/
 
-#define Log(fmt, ...) printf("%s[%s: %d]" fmt, __FILE__, __FUNCTION__, __LINE__, ## __VA_ARGS__)
+#define Log(fmt, ...) printf("%s[%s: %d]: " fmt, __FILE__, __FUNCTION__, __LINE__, ## __VA_ARGS__)
 
 /***************************
  * Math 
@@ -68,6 +71,7 @@ public:
 
     union {
         struct { real x, y; };
+        struct { real w, h; };
         real data[2];
     };
 
@@ -107,6 +111,7 @@ public:
 
     union {
         struct { real x, y, z; };
+        struct { real r, g, b; };
         struct { real u, v, w; };
         real data[3];
     };
@@ -290,6 +295,21 @@ real Dot(const Vector<Dim>& v1, const Vector<Dim>& v2) {
     return sum;
 }
 
+template <size_t Dim>
+bool operator==(const Vector<Dim>& v1, const Vector<Dim>& v2) {
+    for (size_t i = 0; i < Dim; i++) {
+        if (v1[i] != v2[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <size_t Dim>
+bool operator!=(const Vector<Dim>& v1, const Vector<Dim>& v2) {
+    return !(v1 == v2);
+}
+
 template <size_t Dim1, size_t Dim2>
 Vector<Dim1> Vec(const Vector<Dim2>& v) {
     Vector<Dim1> result;
@@ -357,11 +377,6 @@ using Vec3 = Vector<3>;
 using Vec4 = Vector<4>;
 using Color4 = Vec4;
 using Color3 = Vec3;
-
-template <typename T>
-T Clamp(T value, T min, T max) {
-    return std::min(std::max(value, min), max);
-}
 
 // opengl shader matrix is col-major, so our matrix is the same as it
 template <size_t Col, size_t Row>
@@ -567,6 +582,40 @@ Vector<Row> operator*(const Matrix<Col, Row>& m, const Vector<Dim>& v) {
     return result;
 }
 
+using Mat22 = Matrix<2, 2>;
+using Mat33 = Matrix<3, 3>;
+using Mat44 = Matrix<4, 4>;
+
+template <typename T>
+T Clamp(T value, T min, T max) {
+    return std::min(std::max(value, min), max);
+}
+
+struct Rect {
+    Vec2 pos;
+    Vec2 size;
+};
+
+inline bool IsPointInRect(const Vec2& p, const Rect& r) {
+    return p.x >= r.pos.x && p.x <= r.pos.x + r.size.w &&
+           p.y >= r.pos.y && p.y <= r.pos.y + r.size.h;
+}
+
+inline bool RectsIntersect(const Rect& r1, const Rect& r2, Rect* result) {
+    Rect rect;
+    rect.pos.x = std::max(r1.pos.x, r2.pos.x);
+    rect.pos.y = std::max(r1.pos.y, r2.pos.y);
+    rect.pos.w = std::min(r1.pos.x + r1.size.w, r2.pos.x + r2.size.w) - rect.pos.x;
+    rect.pos.h = std::min(r1.pos.y + r1.size.h, r2.pos.y + r2.size.h) - rect.pos.y;
+    if (rect.size.w > 0 && rect.size.h > 0) {
+        if (result) {
+            *result = rect;
+        }
+        return true;
+    }
+    return false;
+}
+
 /***********************************
  * Surface - use this to draw points
 ***********************************/
@@ -594,6 +643,7 @@ public:
 
     inline int Width() const { return surface_->w; }
     inline int Height() const { return surface_->h; }
+    inline Vec2 Size() const { return {real(surface_->w), real(surface_->h)}; }
     void PutPixel(int x, int y, const Color4& color) {
         *getPixel(x, y) = SDL_MapRGBA(surface_->format,
                                       color.r * 255,
@@ -639,6 +689,129 @@ private:
 };
 
 /***********************************
+ * Bresenham
+***********************************/
+class Bresenham {
+public:
+    Bresenham(const Vec2& p1, const Vec2& p2): p1_(p1), p2_(p2) {
+        dx_ = 2 * abs(p1.x - p2.x);
+        dy_ = 2 * abs(p1.y - p2.y);
+        sx_ = p1.x < p2.x ? 1 : p1.x == p2.x ? 0 : -1;
+        sy_ = p1.y < p2.y ? 1 : p1.y == p2.y ? 0 : -1;
+        err_ = dx_ >= dy_ ? - dx_ / 2 : - dy_ / 2;
+    }
+
+    inline const Vec2& CurPoint() const { return p1_; }
+
+    inline bool IsFinished() const { return p1_ == p2_; }
+
+    void Step() {
+        if (!IsFinished()) {
+            if (dx_ >= dy_) {
+                p1_.x += sx_;
+                err_ += dy_;
+                if (err_ >= 0) {
+                    p1_.y += sy_;
+                    err_ -= dx_;
+                }
+            } else {
+                p1_.y += sy_;
+                err_ += dx_;
+                if (err_ >= 0) {
+                    p1_.x += sx_;
+                    err_ -= dy_;
+                }
+            }
+        }
+    }
+
+private:
+    Vec2 p1_;
+    Vec2 p2_;
+    int dx_;
+    int dy_;
+    int sx_;
+    int sy_;
+    int err_;
+};
+
+
+
+/***********************************
  * Shader
 ***********************************/
-// ...
+struct ShaderContext {
+    std::unordered_map<int, real> varyingFloat;
+    std::unordered_map<int, Vec2> varyingVec2;
+    std::unordered_map<int, Vec3> varyingVec3;
+    std::unordered_map<int, Vec4> varyingVec4;
+    std::unordered_map<int, Mat22> varyingMat22;
+    std::unordered_map<int, Mat33> varyingMat33;
+    std::unordered_map<int, Mat44> varyingMat44;
+};
+
+constexpr int VaryingPosition = 0;
+
+using VertexShader = std::function<Vec4(int index, ShaderContext& output)>;
+using FragmentShader = std::function<Vec4(ShaderContext& input)>;
+
+/***********************************
+ * Renderer
+***********************************/
+class Renderer final {
+public:
+    Renderer(int w, int h, VertexShader vshader, FragmentShader fshader)
+    : drawColor_{0, 0, 0, 0}, vertexShader_(vshader), fragmentShader_(fshader) {
+        framebuffer_.reset(new Surface(w, h));
+    }
+
+    void SetDrawColor(const Color4& c) { drawColor_ = c; }
+    void SetClearColor(const Color4& c) { clearColor_ = c; }
+
+    void Clear() {
+        framebuffer_->Clear(clearColor_);
+    }
+
+    void DrawPixel(int x, int y) {
+        if (IsPointInRect(Vec2{real(x), real(y)},
+                          Rect{Vec2{0, 0}, framebuffer_->Size()})) {
+            framebuffer_->PutPixel(x, y, drawColor_);
+        }
+    }
+
+    void DrawLine(int x1, int y1, int x2, int y2) {
+        Bresenham bresenham(Vec2{real(x1), real(y1)}, Vec2{real(x2), real(y2)});
+        while (!bresenham.IsFinished()) {
+            DrawPixel(bresenham.CurPoint().x, bresenham.CurPoint().y);
+            bresenham.Step();
+        }
+        DrawPixel(bresenham.CurPoint().x, bresenham.CurPoint().y);
+    }
+
+    void SetVertexShader(VertexShader shader) { vertexShader_ = shader; }
+    void SetFragmentShader(FragmentShader shader) { fragmentShader_ = shader; }
+
+    void Save(const char* filename) {
+        framebuffer_->Save(filename);
+    }
+
+    void DrawPrimitive() {
+        // TODO not finish
+    }
+
+private:
+    struct Vertex {
+        real rhw;
+        Vec4 pos;
+        Vec2 spf;
+        Vec2 spi;
+    };
+
+    [[ maybe_unused ]] Vertex vertices_[3];
+    std::shared_ptr<Surface> framebuffer_;
+    Color4 drawColor_;
+    Color4 clearColor_;
+
+    VertexShader vertexShader_ = nullptr;
+    FragmentShader fragmentShader_ = nullptr;
+};
