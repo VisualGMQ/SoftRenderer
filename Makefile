@@ -1,7 +1,7 @@
 SRCS 	  = $(wildcard *.cpp)
 BINS 	  = $(patsubst %.cpp, %.out, ${SRCS})
 SDL_DEP   = `sdl2-config --libs --cflags`
-CXX_STD   = -std=c++17
+CXX_STD   = -std=c++17 -g
 CXX_FLAGS = -Wall -Werror -Wextra
 
 all:${BINS}
@@ -12,4 +12,6 @@ all:${BINS}
 
 .PHONY:clean
 clean:
-	-rm ${BINS}
+	-rm *.out
+	-rm *.bmp
+	-rm -rf *.dSYM

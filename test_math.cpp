@@ -14,6 +14,10 @@ int main() {
     std::cout << "Vec<2>(v1)" << Vec<2>(v1) << std::endl
               << "Vec<3>(v1)" << Vec<3>(v1) << std::endl;
 
+    Vec3 c = Cross(v1, v2);
+    std::cout << "Cross(v1, v2) = " << c << std::endl;
+    assert(c.x == -2 && c.y == 4 && c.z == -2);
+
     Vec3 eqv1{1, 2, 3}, eqv2{1, 2, 3}, neqv3{2, 3, 4};
     assert(eqv1 == eqv2);
     assert(eqv1 != neqv3);
