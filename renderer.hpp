@@ -639,13 +639,22 @@ inline Mat44 CreateOrtho(real l, real r, real t, real b, real n, real f) {
 inline Mat44 CreatePersp(real fov, real aspect, real near, real far) {
   real tan2fov = std::tan(fov * 0.5);
   return Mat44{
-    1.f / (aspect * tan2fov),                       0,                           0,                             0,
-                            0,          1.f / tan2fov,                           0,                             0,
-                            0,                      0, (far + near) / (near - far), (2 * far * near) / (far - near),
-                            0,                      0,                           1,                             0,
+    1.f / (aspect * tan2fov),                           0,                           0,                              0,
+                            0,              1.f / tan2fov,                           0,                              0,
+                            0,                          0, (far + near) / (near - far), (2 * far * near) / (far - near),
+                            0,(far + near) / (near - far), (2 * far * near) / (far - near),
+                            0,                          0,                           1,                              0,
   };
 }
 
+inline Mat44 CreateTranslate(real x, real y, real z) {
+  return Mat44{
+    1, 0, 0, x,
+    0, 1, 0, y,
+    0, 0, 1, z,
+    0, 0, 0, 1
+  };
+}
 
 /***********************************
  * Surface - use this to draw points
@@ -699,6 +708,8 @@ public:
       Log("can't convert surface: %s", SDL_GetError());
     }
   }
+
+  SDL_Surface* GetRaw() const { return surface_; }
 
 private:
   SDL_Surface *surface_;
@@ -798,6 +809,8 @@ public:
   void SetDrawColor(const Color4 &c) { drawColor_ = c; }
   void SetClearColor(const Color4 &c) { clearColor_ = c; }
 
+  std::shared_ptr<Surface> GetFramebuffer() { return framebuffer_; }
+
   void Clear() { framebuffer_->Clear(clearColor_); }
 
   void DrawPixel(int x, int y) {
@@ -872,10 +885,6 @@ public:
 
       vertex.spi.x = int(vertex.spf.x + 0.5f);
       vertex.spi.y = int(vertex.spf.y + 0.5f);
-    }
-
-    for (int i = 0; i < 3; i++) {
-      std::cout << vertices_[i].spi << std::endl;
     }
 
     // 6. rasterization
