@@ -31,6 +31,8 @@ int main() {
               << "m2 = " << m2 << std::endl;
     std::cout << "m1 * m2 = " << m1 * m2 << std::endl;
     std::cout << "Transpose(m1): " << Transpose(m1) << std::endl;
+    m1.T();
+    std::cout << "After m1.T(): " << m1 << std::endl;
 
     m1 *= m2;
     std::cout << "m1 *= m2:" << m1 << std::endl;

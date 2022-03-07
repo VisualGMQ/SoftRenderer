@@ -11,12 +11,12 @@ int main() {
     renderer.SetViewport(0, 0, 480, 320);
 
     struct { Vec4 pos; Vec4 color; } vs_input[3] = {
-        {Vec4{80, 20, 0, 1}, Vec4{1, 0, 0, 1}},
-        {Vec4{400, 20, 0, 1}, Vec4{0, 1, 0, 1}},
-        {Vec4{240, 300, 0, 1}, Vec4{0, 0, 1, 1}},
+        {Vec4{0.5, 0.5, -1, 1}, Vec4{1, 0, 0, 1}},
+        {Vec4{0.5, -0.5, -1, 1}, Vec4{0, 1, 0, 1}},
+        {Vec4{-0.5, -0.5, -1, 1}, Vec4{0, 0, 1, 1}},
     };
 
-    auto orthoMat = CreateOrtho(0, 480, 320, 0, 1, -1);
+    auto orthoMat = CreateOrtho(-1, 1, 1, -1, -1, 1);
 
     renderer.SetVertexShader([&](int index, ShaderContext& output) {
         output.varyingVec4[Color] = vs_input[index].color;

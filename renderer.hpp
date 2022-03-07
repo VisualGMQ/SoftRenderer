@@ -8,11 +8,6 @@
 #include <memory>
 #include <unordered_map>
 
-#include "glm/ext/matrix_clip_space.hpp"
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-
-
 #include "SDL.h"
 
 /***************************
@@ -27,6 +22,7 @@
  ****************************/
 
 using real = float;
+constexpr real RealInf = FLT_MAX;
 
 template <size_t Dim> class Vector {
 public:
@@ -395,6 +391,7 @@ public:
   }
 
   real Get(size_t x, size_t y) const { return data_[y + x * Row]; }
+  real& Get(size_t x, size_t y) { return data_[y + x * Row]; }
 
   void Set(size_t x, size_t y, real value) { data_[y + x * Row] = value; }
 
@@ -493,7 +490,7 @@ public:
   void T() {
     for (size_t i = 0; i < Row; i++) {
       for (size_t j = i + 1; j < Col; j++) {
-        Set(i, j, Get(j, i));
+        std::swap(Get(i, j), Get(j, i));
       }
     }
   }
@@ -627,6 +624,11 @@ inline Rect GetTriangleAABB(const Vec2& v1, const Vec2& v2, const Vec2& v3) {
               Vec2{real(x2 - x1), real(y2 - y1)}};
 }
 
+template <typename T>
+inline int Sign(T value) {
+  return value > 0 ? 1 : (value == 0 ? 0 : -1);
+}
+
 inline Mat44 CreateOrtho(real l, real r, real t, real b, real n, real f) {
   return Mat44{
     2 / (r - l),           0,           0, -(l + r) / (r - l),
@@ -637,13 +639,13 @@ inline Mat44 CreateOrtho(real l, real r, real t, real b, real n, real f) {
 }
 
 inline Mat44 CreatePersp(real fov, real aspect, real near, real far) {
-  real tan2fov = std::tan(fov * 0.5);
+  real tanHalf = std::tan(fov * 0.5);
+  char sign = Sign(near);
   return Mat44{
-    1.f / (aspect * tan2fov),                           0,                           0,                              0,
-                            0,              1.f / tan2fov,                           0,                              0,
-                            0,                          0, (far + near) / (near - far), (2 * far * near) / (far - near),
-                            0,(far + near) / (near - far), (2 * far * near) / (far - near),
-                            0,                          0,                           1,                              0,
+    sign / (aspect * tanHalf),              0,                           0,                             0,
+                            0, sign / tanHalf,                           0,                             0,
+                            0,              0, (near + far) / (near - far), 2 * near * far / (far - near),
+                            0,              0,                           1,                             0,
   };
 }
 
@@ -652,6 +654,40 @@ inline Mat44 CreateTranslate(real x, real y, real z) {
     1, 0, 0, x,
     0, 1, 0, y,
     0, 0, 1, z,
+    0, 0, 0, 1
+  };
+}
+
+inline Mat44 CreateRotate(real x, real y, real z) {
+  real sinx = std::sin(x),
+       cosx = std::cos(x),
+       siny = std::sin(y),
+       cosy = std::cos(y),
+       sinz = std::sin(z),
+       cosz = std::cos(z);
+  return Mat44{
+    cosz, -sinz, 0, 0,
+    sinz,  cosz, 0, 0,
+       0,     0, 1, 0,
+       0,     0, 0, 1,
+  } * Mat44{
+    cosy, 0, siny, 0,
+       0, 1,    0, 0,
+   -siny, 0, cosy, 0,
+       0, 0,    0, 1
+  } * Mat44{
+    1,    0,     0, 0,
+    0, cosx, -sinx, 0,
+    0, sinx,  cosx, 0,
+    0,    0,     0, 1
+  };
+}
+
+inline Mat44 CreateScale(real x, real y, real z) {
+  return Mat44{
+    x, 0, 0, 0,
+    0, y, 0, 0,
+    0, 0, z, 0,
     0, 0, 0, 1
   };
 }
@@ -797,6 +833,47 @@ using VertexShader = std::function<Vec4(int index, ShaderContext &output)>;
 using FragmentShader = std::function<Vec4(ShaderContext &input)>;
 
 /***********************************
+ * Buffer2D
+ ***********************************/
+class Buffer2D {
+public:
+  Buffer2D(int w, int h): w_(w), h_(h) {
+    data_ = new real[w * h];
+    Fill(RealInf);
+  }
+
+  void Fill(real value) {
+    for (int i = 0; i < w_ * h_; i++) {
+      data_[i] = value;
+    }
+  }
+
+  real& Get(int x, int y) {
+    return data_[x * h_ + y];
+  }
+
+  real Get(int x, int y) const {
+    return data_[x * h_ + y];
+  }
+
+  void Set(int x, int y, real value) {
+    data_[x * h_ + y] = value;
+  }
+
+  int Width() const { return w_; }
+  int Height() const { return h_; }
+
+  ~Buffer2D() {
+    delete[] data_;
+  }
+
+private:
+  real* data_;
+  int w_;
+  int h_;
+};
+
+/***********************************
  * Renderer
  ***********************************/
 class Renderer final {
@@ -804,6 +881,8 @@ public:
   Renderer(int w, int h)
       : drawColor_{0, 0, 0, 0} {
     framebuffer_.reset(new Surface(w, h));
+    depthBuffer_.reset(new Buffer2D(w, h));
+    std::cout << depthBuffer_->Get(0, 0) << std::endl;
   }
 
   void SetDrawColor(const Color4 &c) { drawColor_ = c; }
@@ -811,7 +890,10 @@ public:
 
   std::shared_ptr<Surface> GetFramebuffer() { return framebuffer_; }
 
-  void Clear() { framebuffer_->Clear(clearColor_); }
+  void Clear() {
+    framebuffer_->Clear(clearColor_);
+    depthBuffer_->Fill(RealInf);
+  }
 
   void DrawPixel(int x, int y) {
     if (IsPointInRect(Vec2{real(x), real(y)},
@@ -823,7 +905,7 @@ public:
   void SetViewport(int x, int y, int w, int h) {
     viewport_ = Mat44::Zeros();
     viewport_.Set(0, 0, w / 2);
-    viewport_.Set(1, 1, h / 2);
+    viewport_.Set(1, 1, -h / 2);
     viewport_.Set(3, 0, w / 2 + x);
     viewport_.Set(3, 1, h / 2 + y);
     viewport_.Set(2, 2, 0.5);
@@ -865,6 +947,9 @@ public:
       vertex.rhw = 1.0 / vertex.pos.w;
       real w = std::abs(vertex.pos.w);
 
+      std::cout << "after vertex shader:" << std::endl;
+      std::cout << vertex.pos << std::endl;
+
       // 3. clipping
       if (w == 0) return false;
       // if vertex outof near plane or far plane, discard
@@ -877,7 +962,7 @@ public:
 
       // 5.1 perspective divide
       vertex.pos *= vertex.rhw;
-      
+
       // 5.2 viewport transform and prepare to step into rasterization
       auto viewportResult = viewport_ * vertex.pos;
       vertex.spf.x = viewportResult.x;
@@ -910,11 +995,17 @@ public:
         if (barycentric.alpha < 0 || barycentric.beta < 0 || barycentric.gamma < 0) {
           continue;
         }
-        [[maybe_unused]]real rhw = vertices_[0].rhw * barycentric.alpha +
+        real rhw = vertices_[0].rhw * barycentric.alpha +
                    vertices_[1].rhw * barycentric.beta +
                    vertices_[2].rhw * barycentric.gamma ;
+        real z = 1.0 / rhw;
 
-        // 6.2 [TODO] update depth buffer
+        // 6.2 update depth buffer( camera look at -z, but depth buffer store positive value, so we take the opposite of 1.0 / rhw)
+        if (-z > depthBuffer_->Get(i, j)) {
+          continue;
+        }
+
+        depthBuffer_->Set(i, j, -z);
 
         // 6.3 interpolation other varying properties 
         ShaderContext input;
@@ -963,10 +1054,10 @@ public:
           color = fragmentShader_(input);
           framebuffer_->PutPixel(i, j, color);
         }
+      }
     }
+    return true;
   }
-  return true;
-}
 
 private:
   struct Vertex {
@@ -984,6 +1075,7 @@ private:
 
   VertexShader vertexShader_ = nullptr;
   FragmentShader fragmentShader_ = nullptr;
+  std::unique_ptr<Buffer2D> depthBuffer_;
   Mat44 viewport_;
 };
 
