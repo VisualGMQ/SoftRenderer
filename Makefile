@@ -1,7 +1,7 @@
 SRCS 	  = $(wildcard *.cpp)
 BINS 	  = $(patsubst %.cpp, %.out, ${SRCS})
-SDL_DEP   = `sdl2-config --libs --cflags` `pkg-config --libs --cflags glm`
-CXX_STD   = -std=c++17 -O2
+SDL_DEP   = `sdl2-config --libs --cflags` `pkg-config --libs --cflags SDL2_image`
+CXX_STD   = -g -std=c++17
 CXX_FLAGS = -Wall -Wextra
 
 all:${BINS}

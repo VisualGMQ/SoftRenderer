@@ -19,6 +19,7 @@ public:
         if (!renderer_) {
             SDL_Log("can't create SDL renderer");
         }
+        SDL_Log("SDL init OK");
     }
 
     virtual ~App() {
@@ -29,9 +30,10 @@ public:
 
     void Run() {
         OnInit();
-        SDL_Event event;
         auto t = std::chrono::high_resolution_clock::now();
+        SDL_Log("start app");
         while (!ShouldExit()) {
+            SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_QUIT) {
                     Exit();
@@ -59,7 +61,6 @@ public:
             }
             auto elapse = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - t);
             t = std::chrono::high_resolution_clock::now();
-            OnUpdate(elapse.count());
             SDL_SetWindowTitle(window_, (title_ + "fps: " + std::to_string(int(1000.0 / elapse.count()))).c_str());
             OnRender();
         }
@@ -77,13 +78,13 @@ public:
             SDL_Log("swap buffer failed");
         } else {
             SDL_RenderCopy(renderer_, texture, nullptr, nullptr);
+            SDL_DestroyTexture(texture);
         }
         SDL_RenderPresent(renderer_);
     }
 
     virtual void OnInit() {}
     virtual void OnQuit() {}
-    virtual void OnUpdate(double) {}
     virtual void OnRender() {}
 
     virtual void OnKeyDown(const SDL_KeyboardEvent&) {}

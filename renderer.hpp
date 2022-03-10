@@ -9,13 +9,13 @@
 #include <unordered_map>
 
 #include "SDL.h"
+#include "SDL_image.h"
 
 /***************************
  * Log
  ****************************/
 
-#define Log(fmt, ...)                                                          \
-  printf("%s[%s: %d]: " fmt, __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define Log(fmt, ...) printf("%s[%s: %d]: " fmt "\n", __FILE__, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 /***************************
  * Math
@@ -571,6 +571,11 @@ struct Rect {
   Vec2 size;
 };
 
+inline std::ostream& operator<<(std::ostream& o, const Rect& r) {
+  printf("Rect(%f, %f, %f, %f)", r.pos.x, r.pos.y, r.size.w, r.size.h);
+  return o;
+}
+
 inline real Radians(real degrees) {
   return degrees * M_PI / 180.0f;
 }
@@ -692,13 +697,23 @@ inline Mat44 CreateScale(real x, real y, real z) {
   };
 }
 
+template <typename T>
+inline T Lerp(T a, T b, real percent) {
+  return a + (b - a) * percent;
+}
+
 /***********************************
  * Surface - use this to draw points
  ***********************************/
 
 class Surface final {
 public:
-  Surface(const char *filename) { surface_ = SDL_LoadBMP(filename); }
+  Surface(const char *filename) {
+    surface_ = SDL_ConvertSurfaceFormat(IMG_Load(filename), SDL_PIXELFORMAT_RGBA32, 0);
+    if (!surface_) {
+      Log("load %s failed", filename);
+    }
+  }
 
   Surface(int w, int h) {
     surface_ =
@@ -722,7 +737,7 @@ public:
                                   color.g * 255, color.b * 255, color.a * 255);
   }
 
-  Color4 GetPixel(int x, int y) {
+  Color4 GetPixel(int x, int y) const {
     const Uint32 *color = getPixel(x, y);
     Uint8 r, g, b, a;
     SDL_GetRGBA(*color, surface_->format, &r, &g, &b, &a);
@@ -750,7 +765,7 @@ public:
 private:
   SDL_Surface *surface_;
 
-  Uint32 *getPixel(int x, int y) {
+  Uint32 *getPixel(int x, int y) const {
     Uint8 *ptr = (Uint8 *)surface_->pixels;
     return (Uint32 *)(ptr + y * surface_->pitch +
                       x * surface_->format->BytesPerPixel);
@@ -812,25 +827,26 @@ struct ShaderContext {
   std::unordered_map<int, Vec2> varyingVec2;
   std::unordered_map<int, Vec3> varyingVec3;
   std::unordered_map<int, Vec4> varyingVec4;
-  std::unordered_map<int, Mat22> varyingMat22;
-  std::unordered_map<int, Mat33> varyingMat33;
-  std::unordered_map<int, Mat44> varyingMat44;
 
   void Clear() {
     varyingFloat.clear();
     varyingVec2.clear();
     varyingVec3.clear();
     varyingVec4.clear();
-    varyingMat22.clear();
-    varyingMat33.clear();
-    varyingMat44.clear();
   }
 };
 
-constexpr int VaryingPosition = 0;
-
 using VertexShader = std::function<Vec4(int index, ShaderContext &output)>;
 using FragmentShader = std::function<Vec4(ShaderContext &input)>;
+
+// like opengl shader function `texture`
+inline Color4 TextureSample(const Surface* const surface, Vec2 texcoord) {
+  texcoord.x = Clamp<real>(texcoord.x, 0, 1);
+  texcoord.y = Clamp<real>(texcoord.y, 0, 1);
+
+  // nearest sample
+  return surface->GetPixel(texcoord.x * surface->Width(), texcoord.y * surface->Height());
+}
 
 /***********************************
  * Buffer2D
@@ -839,7 +855,7 @@ class Buffer2D {
 public:
   Buffer2D(int w, int h): w_(w), h_(h) {
     data_ = new real[w * h];
-    Fill(RealInf);
+    Fill(0);
   }
 
   void Fill(real value) {
@@ -873,16 +889,45 @@ private:
   int h_;
 };
 
+// a small help function to output Buffer2D
+inline std::shared_ptr<Surface> Buffer2D2Surface(const Buffer2D& buf) {
+  Surface* surface = new Surface(buf.Width(), buf.Height());
+  for (int i = 0; i < buf.Width(); i++) {
+    for (int j = 0; j < buf.Height(); j++) {
+      const real& c = buf.Get(i, j);
+      surface->PutPixel(i, j, Color4{c, c, c, 1});
+    }
+  }
+  return std::shared_ptr<Surface>(surface);
+}
+
 /***********************************
  * Renderer
  ***********************************/
+
+enum FaceCull {
+  CW = 1,
+  CCW,
+};
+
 class Renderer final {
 public:
+  static void Init() {
+    IMG_Init(IMG_INIT_PNG|IMG_INIT_JPG);
+  }
+
+  static void Quit() {
+    IMG_Quit();
+  }
+
   Renderer(int w, int h)
       : drawColor_{0, 0, 0, 0} {
     framebuffer_.reset(new Surface(w, h));
-    depthBuffer_.reset(new Buffer2D(w, h));
-    std::cout << depthBuffer_->Get(0, 0) << std::endl;
+    depthBuffer_ = new Buffer2D(w, h);
+  }
+
+  ~Renderer() {
+    delete depthBuffer_;
   }
 
   void SetDrawColor(const Color4 &c) { drawColor_ = c; }
@@ -890,9 +935,11 @@ public:
 
   std::shared_ptr<Surface> GetFramebuffer() { return framebuffer_; }
 
+  void SetFaceCull(FaceCull fc) { faceCull_ = fc; }
+
   void Clear() {
     framebuffer_->Clear(clearColor_);
-    depthBuffer_->Fill(RealInf);
+    depthBuffer_->Fill(0);
   }
 
   void DrawPixel(int x, int y) {
@@ -909,8 +956,8 @@ public:
     viewport_.Set(3, 0, w / 2 + x);
     viewport_.Set(3, 1, h / 2 + y);
     viewport_.Set(2, 2, 0.5);
-    viewport_.Set(3, 2, 0.5);
-    viewport_.Set(4, 4, 1);
+    viewport_.Set(3, 2, 1);
+    viewport_.Set(3, 3, 1);
   }
 
   const Mat44& GetViewport() const {
@@ -931,6 +978,13 @@ public:
 
   void Save(const char *filename) { framebuffer_->Save(filename); }
 
+  void SaveDepthBuf(const char* filename) {
+    auto surface = Buffer2D2Surface(*depthBuffer_);
+    surface->Save(filename);
+  }
+
+  void EnableFaceCull(bool e) { enableFaceCull_ = e; }
+
   bool DrawPrimitive() {
     if (!vertexShader_) {
       return false;
@@ -944,41 +998,49 @@ public:
 
       // 2. run Vertex Shader
       vertex.pos = vertexShader_(i, vertices_[i].context);
-      vertex.rhw = 1.0 / vertex.pos.w;
-      real w = std::abs(vertex.pos.w);
 
-      std::cout << "after vertex shader:" << std::endl;
-      std::cout << vertex.pos << std::endl;
+      vertex.rhw = 1.0 / (vertex.pos.w == 0 ? 1e-5 : vertex.pos.w);
+    }
 
-      // 3. clipping
-      if (w == 0) return false;
-      // if vertex outof near plane or far plane, discard
-      if (vertex.pos.z < 0 || vertex.pos.z > w) return false;
-      // if vertex outof screen, discard
-      if (vertex.pos.x < -w || vertex.pos.x > w) return false;
-      if (vertex.pos.y < -w || vertex.pos.y > w) return false;
+    // 3. [TODO] clipping, if AABB not intersect with screen, clip it 
 
-      // 4. [TODO] face culling
+    // 4. face culling, cull the CCW face
+    if (enableFaceCull_) {
+      real result = Cross(Vec<2>(vertices_[1].pos - vertices_[0].pos),
+                          Vec<2>(vertices_[2].pos - vertices_[1].pos));
 
-      // 5.1 perspective divide
+      if (faceCull_ == CCW && result >= 0) {
+        return false; 
+      } else if (faceCull_ == CW && result <= 0) {
+        return false;
+      }
+    }
+
+    for (auto& vertex : vertices_) {
+      // 4. perspective divide
       vertex.pos *= vertex.rhw;
 
-      // 5.2 viewport transform and prepare to step into rasterization
-      auto viewportResult = viewport_ * vertex.pos;
-      vertex.spf.x = viewportResult.x;
-      vertex.spf.y = viewportResult.y;
+      // 5. viewport transform and prepare to step into rasterization
+      vertex.spf = Vec<3>(viewport_ * vertex.pos);
 
       vertex.spi.x = int(vertex.spf.x + 0.5f);
       vertex.spi.y = int(vertex.spf.y + 0.5f);
     }
 
-    // 6. rasterization
+    // small optimization, if triangle area == 0, quit
+    if (Cross(vertices_[0].spi - vertices_[1].spi,
+              vertices_[0].spi - vertices_[2].spi) == 0) {
+      return false;
+    }
+
+    // calculate bounding box for rasterization
     Rect boundingRect = GetTriangleAABB(vertices_[0].spi, vertices_[1].spi, vertices_[2].spi);
     int minX = std::max<int>(boundingRect.pos.x, 0),
         minY = std::max<int>(boundingRect.pos.y, 0),
         maxX = std::min<int>(boundingRect.pos.x + boundingRect.size.w, framebuffer_->Width()),
         maxY = std::min<int>(boundingRect.pos.y + boundingRect.size.h, framebuffer_->Height());
 
+    // 7. rasterization
     for (int i = minX; i < maxX; i++) {
       for (int j = minY; j < maxY; j++) {
         Vec2 p{i + 0.5f, j+ 0.5f};
@@ -986,28 +1048,40 @@ public:
           continue;
         }
 
-        // 6.1 barycentric calculate
-        Vec3 barycentric = Barycentric(Vec<2>(vertices_[0].spi),
-                                       Vec<2>(vertices_[1].spi),
-                                       Vec<2>(vertices_[2].spi),
+        // 7.1 barycentric calculate
+        Vec3 barycentric = Barycentric(vertices_[0].spi,
+                                       vertices_[1].spi,
+                                       vertices_[2].spi,
                                        p);
+        // [begin question1]: how dose this work???
+        real rhw = vertices_[0].rhw * barycentric.alpha + vertices_[1].rhw * barycentric.beta + vertices_[2].rhw * barycentric.gamma;
+        float w = 1.0f / ((rhw != 0.0f)? rhw : 1.0f);
+
+        barycentric.alpha *= vertices_[0].rhw * w;
+        barycentric.beta *= vertices_[1].rhw * w;
+        barycentric.gamma *= vertices_[2].rhw * w;
+        // [end question1].
+
+        if (barycentric.alpha < 0 && barycentric.beta < 0 && barycentric.gamma < 0) {
+          return false;
+        }
 
         if (barycentric.alpha < 0 || barycentric.beta < 0 || barycentric.gamma < 0) {
           continue;
         }
-        real rhw = vertices_[0].rhw * barycentric.alpha +
-                   vertices_[1].rhw * barycentric.beta +
-                   vertices_[2].rhw * barycentric.gamma ;
-        real z = 1.0 / rhw;
 
-        // 6.2 update depth buffer( camera look at -z, but depth buffer store positive value, so we take the opposite of 1.0 / rhw)
-        if (-z > depthBuffer_->Get(i, j)) {
+        // get z, and make it into [0, 1]
+        real z = 1.0 / (barycentric.alpha / vertices_[0].spf.z + barycentric.beta / vertices_[1].spf.z + barycentric.gamma / vertices_[2].spf.z);
+
+        // 7.2 update depth buffer( camera look at -z, but depth buffer store positive value, so we take the opposite of 1.0 / rhw)
+        if (z <= depthBuffer_->Get(i, j)) {
           continue;
         }
 
-        depthBuffer_->Set(i, j, -z);
+        depthBuffer_->Set(i, j, z);
 
-        // 6.3 interpolation other varying properties 
+
+        // 7.3 interpolation other varying properties 
         ShaderContext input;
         ShaderContext& i0 = vertices_[0].context,
                        i1 = vertices_[1].context,
@@ -1032,23 +1106,8 @@ public:
                                     i1.varyingVec4[key] * barycentric.beta +
                                     i2.varyingVec4[key] * barycentric.gamma;
         }
-        for (auto& [key, value] : i0.varyingMat22) {
-          input.varyingMat22[key] = i0.varyingMat22[key] * barycentric.alpha +
-                                    i1.varyingMat22[key] * barycentric.beta +
-                                    i2.varyingMat22[key] * barycentric.gamma;
-        }
-        for (auto& [key, value] : i0.varyingMat33) {
-          input.varyingMat33[key] = i0.varyingMat33[key] * barycentric.alpha +
-                                    i1.varyingMat33[key] * barycentric.beta +
-                                    i2.varyingMat33[key] * barycentric.gamma;
-        }
-        for (auto& [key, value] : i0.varyingMat44) {
-          input.varyingMat44[key] = i0.varyingMat44[key] * barycentric.alpha +
-                                    i1.varyingMat44[key] * barycentric.beta +
-                                    i2.varyingMat44[key] * barycentric.gamma;
-        }
 
-        // 7. run Fragment Shader 
+        // 8. run Fragment Shader 
         Vec4 color{0, 0, 0, 0};
         if (fragmentShader_) {
           color = fragmentShader_(input);
@@ -1064,7 +1123,7 @@ private:
     ShaderContext context;
     real rhw;
     Vec4 pos;
-    Vec2 spf;
+    Vec3 spf;
     Vec2 spi;
   };
 
@@ -1075,8 +1134,10 @@ private:
 
   VertexShader vertexShader_ = nullptr;
   FragmentShader fragmentShader_ = nullptr;
-  std::unique_ptr<Buffer2D> depthBuffer_;
+  Buffer2D* depthBuffer_ = nullptr;
   Mat44 viewport_;
+  FaceCull faceCull_ = CCW;
+  bool enableFaceCull_ = true;
 };
 
 // vim: ts=2 sts=2 sw=2
