@@ -1002,7 +1002,14 @@ public:
       vertex.rhw = 1.0 / (vertex.pos.w == 0 ? 1e-5 : vertex.pos.w);
     }
 
-    // 3. [TODO] clipping, if AABB not intersect with screen, clip it 
+    // 3. clipping, if AABB not intersect with screen, clip it 
+    for (int i = 0; i < 3; i++) {
+      real absw = std::abs(vertices_[i].pos.w);
+      if (vertices_[i].pos.x < -absw || vertices_[i].pos.x > absw ||
+          vertices_[i].pos.y < -absw || vertices_[i].pos.y > absw) {
+        return false;
+      }
+    }
 
     // 4. face culling, cull the CCW face
     if (enableFaceCull_) {
@@ -1053,14 +1060,13 @@ public:
                                        vertices_[1].spi,
                                        vertices_[2].spi,
                                        p);
-        // [begin question1]: how dose this work???
+
         real rhw = vertices_[0].rhw * barycentric.alpha + vertices_[1].rhw * barycentric.beta + vertices_[2].rhw * barycentric.gamma;
         float w = 1.0f / ((rhw != 0.0f)? rhw : 1.0f);
 
         barycentric.alpha *= vertices_[0].rhw * w;
         barycentric.beta *= vertices_[1].rhw * w;
         barycentric.gamma *= vertices_[2].rhw * w;
-        // [end question1].
 
         if (barycentric.alpha < 0 && barycentric.beta < 0 && barycentric.gamma < 0) {
           return false;

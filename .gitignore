@@ -1,0 +1,6 @@
+compile_flags.txt
+*.out
+*.o
+*.bmp
+*.json
+*.dSYM
