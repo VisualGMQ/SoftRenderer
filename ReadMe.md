@@ -17,6 +17,4 @@
 
 ## 效果图
 
-![example2-colorful-triangle.bmp](./snapshot/example2-colorful-triangle.bmp)
-
 ![example8-box](./snapshot/example8-box.png)
