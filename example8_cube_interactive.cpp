@@ -97,10 +97,10 @@ public:
             rotation_.y += 5;
         }
         if (e.keysym.sym == SDLK_w) {
-            rotation_.x -= 5;
+            rotation_.x += 5;
         }
         if (e.keysym.sym == SDLK_s) {
-            rotation_.x += 5;
+            rotation_.x -= 5;
         }
         if (e.keysym.sym == SDLK_u) {
             rotation_.z += 5;

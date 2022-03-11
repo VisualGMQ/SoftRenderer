@@ -15,7 +15,7 @@ struct { Vec4 pos; Vec4 color; } const vs_input[3] = {
 constexpr int WindowWidth = 480;
 constexpr int WindowHeight = 320;
 
-const Mat44 OrthoMat = CreateOrtho(0, 480, 0, 320, 1, -1);
+const Mat44 OrthoMat = CreateOrtho(0, 480, 0, 320, -1, 1);
 Mat44 ModelMat = Mat44::Eye();
 
 class MoveTriangleApp: public App {
@@ -27,6 +27,7 @@ public:
         pos_.y = 0;
 
         renderer_ = new Renderer(WindowWidth, WindowHeight);
+        renderer_->EnableFaceCull(false);
 
         renderer_->SetClearColor(Color4{0.1, 0.1, 0.1, 1});
         renderer_->Clear();

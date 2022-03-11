@@ -634,7 +634,7 @@ inline int Sign(T value) {
   return value > 0 ? 1 : (value == 0 ? 0 : -1);
 }
 
-inline Mat44 CreateOrtho(real l, real r, real t, real b, real n, real f) {
+inline Mat44 CreateOrtho(real l, real r, real b, real t, real n, real f) {
   return Mat44{
     2 / (r - l),           0,           0, -(l + r) / (r - l),
               0, 2 / (t - b),           0, -(t + b) / (t - b),
@@ -647,9 +647,9 @@ inline Mat44 CreatePersp(real fov, real aspect, real near, real far) {
   real tanHalf = std::tan(fov * 0.5);
   char sign = Sign(near);
   return Mat44{
-    sign / (aspect * tanHalf),              0,                           0,                             0,
+     sign / (aspect * tanHalf),            0,                            0,                             0,
                             0, sign / tanHalf,                           0,                             0,
-                            0,              0, (near + far) / (near - far), 2 * near * far / (far - near),
+                            0,              0,           (near + far) / (near - far),           2 * near * far / (far - near),
                             0,              0,                           1,                             0,
   };
 }
@@ -951,10 +951,10 @@ public:
 
   void SetViewport(int x, int y, int w, int h) {
     viewport_ = Mat44::Zeros();
-    viewport_.Set(0, 0, w / 2);
-    viewport_.Set(1, 1, -h / 2);
-    viewport_.Set(3, 0, w / 2 + x);
-    viewport_.Set(3, 1, h / 2 + y);
+    viewport_.Set(0, 0, w / 2.0f);
+    viewport_.Set(1, 1, h / 2.0f);
+    viewport_.Set(3, 0, w / 2.0f + x);
+    viewport_.Set(3, 1, h / 2.0f + y);
     viewport_.Set(2, 2, 0.5);
     viewport_.Set(3, 2, 1);
     viewport_.Set(3, 3, 1);
@@ -984,6 +984,7 @@ public:
   }
 
   void EnableFaceCull(bool e) { enableFaceCull_ = e; }
+  void EnableDepthTest(bool e) { enableDepthTest_ = e; }
 
   bool DrawPrimitive() {
     if (!vertexShader_) {
@@ -1080,11 +1081,12 @@ public:
         real z = 1.0 / (barycentric.alpha / vertices_[0].spf.z + barycentric.beta / vertices_[1].spf.z + barycentric.gamma / vertices_[2].spf.z);
 
         // 7.2 update depth buffer( camera look at -z, but depth buffer store positive value, so we take the opposite of 1.0 / rhw)
-        if (z <= depthBuffer_->Get(i, j)) {
-          continue;
+        if (enableDepthTest_) {
+          if (z <= depthBuffer_->Get(i, j)) {
+            continue;
+          }
+          depthBuffer_->Set(i, j, z);
         }
-
-        depthBuffer_->Set(i, j, z);
 
 
         // 7.3 interpolation other varying properties 
@@ -1144,6 +1146,7 @@ private:
   Mat44 viewport_;
   FaceCull faceCull_ = CCW;
   bool enableFaceCull_ = true;
+  bool enableDepthTest_ = true;
 };
 
 // vim: ts=2 sts=2 sw=2
